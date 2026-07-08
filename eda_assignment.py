@@ -7,9 +7,7 @@ import seaborn as sns
 # Set random seed for reproducibility
 np.random.seed(42)
 
-# ==========================================
 # 0. Raw Data Generation (Client Raw Data)
-# ==========================================
 # We generate a dataset that mimics a raw, messy customer database to satisfy all tasks.
 def generate_messy_data(filename="customer_raw_data.csv"):
     n_rows = 1000
@@ -100,9 +98,8 @@ generate_messy_data()
 # Create plots folder if it doesn't exist
 os.makedirs('plots', exist_ok=True)
 
-# ==========================================
 # Task 1: Load dataset & print metadata
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 1: Loading Dataset")
 print("="*50)
@@ -116,9 +113,9 @@ print(df.dtypes)
 # Save initial state for comparison in later tasks
 df_initial = df.copy()
 
-# ==========================================
+
 # Task 2: Null value analysis
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 2: Null Value Analysis")
 print("="*50)
@@ -138,7 +135,6 @@ print(f"\nColumns exceeding 20% null rate: {exceed_20}")
 
 # For numeric columns below 20% nulls, fill with the median
 # Currently, the numeric columns with nulls are Spending_Score and Satisfaction_Score.
-# (Note: Annual_Income is still an object dtype, so it won't be filled here as it is non-numeric at this step.
 # It will be converted in Task 4 and imputed in Task 9a).
 numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
 imputed_cols = []
@@ -150,9 +146,9 @@ for col in numeric_cols:
         imputed_cols.append(col)
         print(f"Filled numeric column '{col}' nulls with its median: {median_val:.2f}")
 
-# ==========================================
+
 # Task 3: Duplicate detection and removal
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 3: Duplicate Detection & Removal")
 print("="*50)
@@ -178,9 +174,9 @@ null_comparison = pd.DataFrame({
 print("\nComparison of null percentages before vs. after duplicate removal:")
 print(null_comparison)
 
-# ==========================================
+
 # Task 4: Data type correction
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 4: Data Type Correction")
 print("="*50)
@@ -202,9 +198,9 @@ mem_after = df.memory_usage(deep=True).sum()
 print(f"Memory usage after conversion: {mem_after:,} bytes")
 print(f"Net memory savings: {mem_before - mem_after:,} bytes ({(1 - mem_after/mem_before)*100:.2f}% reduction)")
 
-# ==========================================
+
 # Task 5: Descriptive statistics & skewness
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 5: Descriptive Statistics & Skewness")
 print("="*50)
@@ -223,9 +219,8 @@ for col in num_cols:
 highest_skew_col = max(skew_vals, key=lambda k: abs(skew_vals[k]))
 print(f"\nColumn with the highest absolute skewness: '{highest_skew_col}' (Skewness: {skew_vals[highest_skew_col]:.4f})")
 
-# ==========================================
 # Task 6: Outlier detection with IQR
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 6: Outlier Detection with IQR")
 print("="*50)
@@ -248,9 +243,9 @@ for col in outlier_cols:
     print(f"  Number of Outliers: {len(outliers)} ({(len(outliers)/len(df))*100:.2f}%)")
     print("-" * 30)
 
-# ==========================================
+
 # Task 7: Visualizations (5 required plots)
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 7: Generating Visualizations")
 print("="*50)
@@ -316,9 +311,9 @@ plt.savefig('plots/boxplot.png', dpi=150)
 plt.close()
 print("Saved 5/5: boxplot.png")
 
-# ==========================================
+
 # Task 8: Correlation heat map
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 8: Correlation Heat Map")
 print("="*50)
@@ -341,9 +336,8 @@ highest_pair = corr_unstacked.idxmax()
 highest_corr_val = corr_matrix.loc[highest_pair[0], highest_pair[1]]
 print(f"Highest absolute correlation: {highest_pair[0]} & {highest_pair[1]} (Pearson Correlation: {highest_corr_val:.4f})")
 
-# ==========================================
 # Task 9a: Imputation strategy comparison
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 9a: Imputation Strategy Comparison")
 print("="*50)
@@ -374,9 +368,8 @@ for col in top_2_skewed:
 print("\nVerification of null values in the two columns after imputation:")
 print(df[top_2_skewed].isnull().sum())
 
-# ==========================================
 # Task 9b: Spearman rank correlation
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 9b: Spearman Rank Correlation")
 print("="*50)
@@ -421,9 +414,9 @@ grouped_agg = df.groupby('Membership_Tier', observed=False)['Spending_Score'].ag
 print("Grouped Aggregation of Spending Score by Membership Tier:")
 print(grouped_agg)
 
-# ==========================================
+
 # Task 10: Save clean dataset
-# ==========================================
+
 print("\n" + "="*50)
 print("TASK 10: Saving Cleaned Dataset")
 print("="*50)
