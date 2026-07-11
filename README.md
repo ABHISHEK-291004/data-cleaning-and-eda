@@ -256,3 +256,106 @@ In plain language, even though Random Forest achieved a slightly higher AUC on o
 Since the performance difference is not statistically significant, the baseline **Logistic Regression model is recommended** for deployment or simple profiling, because it is simpler, less prone to overfitting, has lower computational overhead, and is highly interpretable. However, if non-linear interactions are expected, the Random Forest model could still be prioritized in future iterations if trained on a larger dataset to narrow the confidence interval.
 
 The bootstrap distribution plot showing the confidence interval and the zero line is saved at **`plots/bootstrap_auc_distribution.png`**.
+
+---
+---
+
+# Part 3: Advanced Modeling, Ensembles, Tuning, and Full ML Pipeline
+
+## 1. Decision Tree Baselines and Overfitting
+
+We began by training a standard `DecisionTreeClassifier` with no constraints (`max_depth=None`).
+- **Unconstrained Tree**: Train Accuracy = 1.0000 (100%), Test Accuracy = 0.6200.
+
+This huge gap is classic overfitting. Decision trees are known as high-variance models because they greedily split the training data over and over without revisiting earlier decisions until every single sample is perfectly classified. This essentially memorizes the training data noise instead of learning generalizable patterns.
+
+We then trained a controlled tree with constraints (`max_depth=5`, `min_samples_split=20`).
+- **Controlled Tree**: Train Accuracy = 0.7013, Test Accuracy = 0.7000.
+
+The train/test gap completely collapsed. The `max_depth` parameter limits how far down the tree can grow, which reduces variance by stopping the tree before it learns noise (though it introduces a little bias). The `min_samples_split` parameter stops a node from splitting if it has fewer than 20 samples, preventing the model from chasing patterns in tiny, unrepresentative subsets of data.
+
+## 2. Gini vs. Entropy Comparison
+
+We compared two trees with `max_depth=5`, one using the Gini criterion and one using Entropy. Both achieved a test accuracy of exactly **0.7000**.
+
+- **Gini Impurity Formula**: $1 - \sum p_i^2$
+- **Entropy Formula**: $-\sum p_i \log_2(p_i)$
+
+When a node has a Gini impurity of exactly 0, it means the node is "pure"—all the samples in that node belong to exactly one class. There is no mixing at all.
+
+## 3. Random Forest and Feature Importance
+
+We trained a `RandomForestClassifier` (`n_estimators=100`, `max_depth=10`). 
+- **Random Forest**: Train Accuracy = 0.9500, Test Accuracy = 0.6850, ROC-AUC = 0.7434.
+
+### Bagging Concept
+Bagging (Bootstrap Aggregating) helps fix the high variance of single decision trees. It works by training many trees, each on a random bootstrap sample (sampled with replacement) of the training data. At every node split, the tree is only allowed to look at a random subset of features (usually the square root of the total features). By averaging the predictions of all these diverse, slightly different trees together, the ensemble drastically reduces the overall variance and prevents extreme overfitting compared to one single deep tree.
+
+### Top 5 Features
+1. `Purchase_Frequency` (0.6306)
+2. `Age` (0.2389)
+3. `Satisfaction_Score` (0.0762)
+4. `Membership_Tier_Silver` (0.0253)
+5. `Membership_Tier_Gold` (0.0168)
+
+In a Random Forest, feature importance is calculated by tracking how much a feature decreases the Gini impurity every time it is used to split a node, averaged across all 100 trees in the forest. This is fundamentally different from a linear regression coefficient. A linear coefficient measures the direct directional effect of a feature on the output, holding other features constant. Random Forest importance only measures how useful the feature is for splitting groups apart, regardless of whether the relationship is positive or negative.
+
+## 4. Feature Ablation Study
+
+We took the 5 lowest-importance features (`Membership_Tier_Platinum`, `Membership_Tier_Gold`, `Membership_Tier_Silver`, `Satisfaction_Score`, `Age`) and trained a second Random Forest with those features completely removed from the dataset.
+
+- **Full Model Test ROC-AUC**: 0.7434
+- **Reduced Model Test ROC-AUC**: 0.7221
+
+Because the AUC dropped from 0.7434 to 0.7221, those removed features were genuinely contributing some predictive signal, not just noise. 
+
+**Production Trade-off**: Deploying the reduced model would save inference cost and simplify maintenance because there are fewer data pipelines to monitor in a live environment. However, this comes at the cost of some predictive power. The business would have to decide if a ~0.02 drop in AUC is an acceptable penalty for a much simpler, faster production system.
+
+## 5. Cross-Validation vs Single Split
+
+We ran a 5-fold Stratified Cross-Validation comparison across our main models:
+- Logistic Regression: Mean AUC = 0.7360 (Std = 0.0292)
+- Controlled Decision Tree: Mean AUC = 0.7092 (Std = 0.0285)
+- Random Forest: Mean AUC = 0.7145 (Std = 0.0209)
+- Gradient Boosting: Mean AUC = 0.7120 (Std = 0.0314)
+
+Cross-validation provides a much more reliable estimate of how the model will generalize than a single train-test split. A single split depends heavily on which exact rows end up in the test set. By folding the data 5 times, every single row gets used as a test sample exactly once. Averaging those 5 scores smooths out random luck and gives us a truer picture of performance.
+
+## 6. Hyperparameter Tuning (GridSearchCV)
+
+We built an end-to-end ML pipeline combining median imputation, standard scaling, one-hot encoding, and a Random Forest. We tuned it with `GridSearchCV` over 3 values for `n_estimators`, 3 values for `max_depth`, and 2 values for `min_samples_leaf`.
+Because there are 18 grid combinations ($3 \times 3 \times 2$), and we used 5-fold cross-validation, the grid search evaluated a total of **90 model configurations**.
+
+- **Best Parameters**: `max_depth=5`, `min_samples_leaf=1`, `n_estimators=50`
+- **Best 5-Fold ROC-AUC**: 0.7323
+
+**Exhaustive vs Randomized Search**: An exhaustive Grid Search guarantees finding the absolute best combination within the defined grid because it tests every single possibility. However, it scales poorly and is very slow. A Randomized Search randomly samples combinations from the grid, which is much faster and computationally cheaper, but might miss the optimal combination by sheer bad luck.
+
+## 7. Manual Learning Curve Analysis
+
+We re-trained our best pipeline on progressively larger subsets of our training data to diagnose bias and variance.
+
+| Training Fraction | Training AUC | Test AUC |
+| :--- | :--- | :--- |
+| 0.2 | 0.9494 | 0.7250 |
+| 0.4 | 0.9316 | 0.7307 |
+| 0.6 | 0.8956 | 0.7295 |
+| 0.8 | 0.8725 | 0.7404 |
+| 1.0 | 0.8688 | 0.7371 |
+
+- **Training AUC decreases**: As the training set grows (from 0.2 to 1.0), the training AUC steadily drops from 0.9494 to 0.8688. This is expected because it is much harder to perfectly memorize 800 rows than it is to memorize 160 rows.
+- **Test AUC plateaus**: The test AUC goes up slightly initially but plateaus around the 0.73-0.74 range regardless of how much more data we add.
+- **Conclusion**: The model is currently **capacity-limited** (high bias), not data-limited. Since the test AUC has stopped climbing even when given 100% of the training data, collecting thousands more customer records likely won't improve performance much. The model architecture itself has reached its learning limit for the features provided.
+
+## 8. Summary Comparison and Final Recommendation
+
+| Model | 5-Fold CV Mean AUC | 5-Fold CV Std AUC | Test-Set AUC |
+| :--- | :--- | :--- | :--- |
+| Logistic Regression (Part 2) | 0.7360 | 0.0292 | 0.7219 |
+| Controlled Decision Tree | 0.7092 | 0.0285 | 0.7000 |
+| Default Random Forest | 0.7145 | 0.0209 | 0.7434 |
+| Gradient Boosting | 0.7120 | 0.0314 | 0.7483 |
+| Tuned RF Pipeline (Best Model) | 0.7323 | 0.0205 | 0.7371 |
+
+**Recommendation:**
+I recommend deploying the **Logistic Regression** baseline. While the complex ensemble models like Random Forest and Gradient Boosting showed slightly higher single-test-set AUCs (e.g., 0.7483), the robust 5-Fold Cross Validation proves that Logistic Regression actually performs the best on average across all folds (Mean AUC 0.7360). Because it beats the ensembles in strict cross-validation, and is vastly simpler, faster, and easier to interpret, there is no justification for accepting the technical debt of a complex machine learning pipeline for this specific dataset.
