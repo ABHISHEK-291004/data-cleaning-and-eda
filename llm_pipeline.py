@@ -7,19 +7,17 @@ import numpy as np
 import pandas as pd
 import jsonschema
 
-# ============================================================
-# PART 4: LLM-POWERED FEATURE — TRACK C
+
 # Model Prediction Explanation Pipeline
-# ============================================================
+
 
 print("=" * 60)
 print("PART 4: LLM-POWERED MODEL PREDICTION EXPLANATION PIPELINE")
 print("=" * 60)
 print()
 
-# ----------------------------------------------------------
 # TASK 1: LLM API CONNECTION SETUP
-# ----------------------------------------------------------
+
 
 # API key is read from the environment — never hardcoded
 api_key = os.environ.get("LLM_API_KEY", "")
@@ -126,9 +124,9 @@ def _mock_llm_response(system_prompt, user_prompt, temperature):
     return json.dumps(result)
 
 
-# ----------------------------------------------------------
+
 # TASK 1 (cont.): Demonstrate call_llm with test prompt
-# ----------------------------------------------------------
+
 print("-" * 60)
 print("TASK 1: LLM API Connection Test")
 print("-" * 60)
@@ -142,9 +140,9 @@ print(f"Test prompt response: {test_response}")
 print()
 
 
-# ----------------------------------------------------------
-# TASK 4: PII GUARDRAIL
-# ----------------------------------------------------------
+
+# TASK : PII GUARDRAIL
+
 print("-" * 60)
 print("TASK 4: PII Guardrail Demonstration")
 print("-" * 60)
@@ -181,9 +179,9 @@ else:
     print(f"  LLM Response: {guardrail_response}\n")
 
 
-# ----------------------------------------------------------
+
 # TASK 2 & 3 & 5: LOAD MODEL, PREDICT, EXPLAIN, VALIDATE
-# ----------------------------------------------------------
+
 print("-" * 60)
 print("TASK 2/3/5: Model Prediction Explanation Pipeline")
 print("-" * 60)
@@ -312,9 +310,9 @@ for i, features in enumerate(test_inputs, 1):
         temp0_results.append({"input": features, "output": FALLBACK, "status": "FAIL"})
 
 
-# ----------------------------------------------------------
+
 # TEMPERATURE A/B COMPARISON
-# ----------------------------------------------------------
+
 print("\n" + "=" * 60)
 print("TEMPERATURE A/B COMPARISON (temp=0 vs temp=0.7)")
 print("=" * 60)
@@ -359,9 +357,9 @@ for i, features in enumerate(test_inputs, 1):
             print("Key Difference: outputs are identical (deterministic)")
 
 
-# ----------------------------------------------------------
+
 # SUMMARY TABLE
-# ----------------------------------------------------------
+
 print("\n" + "=" * 60)
 print("SUMMARY: 3-ROW DEMONSTRATION TABLE")
 print("=" * 60)
