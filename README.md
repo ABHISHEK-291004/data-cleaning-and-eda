@@ -359,3 +359,123 @@ We re-trained our best pipeline on progressively larger subsets of our training 
 
 **Recommendation:**
 I recommend deploying the **Logistic Regression** baseline. While the complex ensemble models like Random Forest and Gradient Boosting showed slightly higher single-test-set AUCs (e.g., 0.7483), the robust 5-Fold Cross Validation proves that Logistic Regression actually performs the best on average across all folds (Mean AUC 0.7360). Because it beats the ensembles in strict cross-validation, and is vastly simpler, faster, and easier to interpret, there is no justification for accepting the technical debt of a complex machine learning pipeline for this specific dataset.
+
+---
+---
+
+# Part 4: LLM-Powered Feature — Track C (Model Prediction Explanation Pipeline)
+
+**Chosen Track: C (Model Prediction Explanation Pipeline)**
+
+We built an end-to-end pipeline that loads our serialized `best_model.pkl` from Part 3, predicts on new customer data, and then calls an LLM API to generate structured JSON explanations of why the model made each prediction. This pipeline includes PII guardrails, schema validation, and a temperature comparison study.
+
+## 1. LLM API Connection
+
+The API key is stored in the `LLM_API_KEY` environment variable and is never hardcoded anywhere in the codebase. The reusable function `call_llm(system_prompt, user_prompt, temperature=0.0, max_tokens=512)` handles the full request lifecycle:
+1. Constructs a JSON payload with `model`, `messages` (a list of dicts with `role` and `content`), `temperature`, and `max_tokens`.
+2. Sets the headers: `Authorization: Bearer <api_key>` and `Content-Type: application/json`.
+3. Makes `response = requests.post(url, headers=headers, json=payload)`.
+4. Checks `response.status_code == 200`; if not, prints the error code and returns `None`.
+5. Parses and returns `response.json()["choices"][0]["message"]["content"]`.
+
+A simple test call with the prompt `"Reply with only the word: hello"` returned `hello`, confirming the connection works.
+
+## 2. Prompt Design
+
+### System Prompt (Verbatim)
+
+```
+You are a machine learning prediction explainer. You will receive a customer's
+feature values, the model's predicted class, and the predicted probability.
+Your job is to explain why the model likely made that prediction based on the
+feature values provided.
+
+You must respond with ONLY valid JSON matching this exact structure:
+{
+  "prediction_label": "string (the predicted class name)",
+  "confidence_level": "low or medium or high",
+  "top_reason": "string (the most important reason for this prediction)",
+  "second_reason": "string (the second most important reason)",
+  "next_step": "string (a recommended business action based on this prediction)"
+}
+
+Do not include any text outside the JSON object. Do not wrap it in markdown
+code fences.
+```
+
+### User Prompt Template (with Placeholders)
+
+```
+Customer Feature Values:
+- Age: {age}
+- Purchase_Frequency: {purchase_frequency}
+- Satisfaction_Score: {satisfaction_score}
+- Membership_Tier: {membership_tier}
+
+Model Prediction:
+- Predicted Class: {predicted_class}
+- Probability: {probability}
+
+Based on these feature values and the prediction, provide a structured JSON
+explanation.
+```
+
+### Why Temperature = 0?
+We set `temperature=0` for this task because it forces the model to always pick the highest-probability next token at every generation step. This produces deterministic, consistent, and reproducible outputs. For structured data extraction, we need the same input to always produce the same valid JSON output with the same field values. Any randomness would risk malformed JSON, inconsistent field names, or unpredictable explanations.
+
+## 3. Temperature A/B Comparison
+
+We ran each of our 3 test inputs through the LLM twice: once at `temperature=0` and once at `temperature=0.7`.
+
+| Input | Output at temp=0 (top_reason) | Output at temp=0.7 (top_reason) | Key Difference |
+| :--- | :--- | :--- | :--- |
+| Age=45, Freq=35, Platinum | "Purchase frequency of 35 is well above the dataset average, suggesting strong buying intent" | "The high purchase frequency (35 transactions) is a strong positive signal for value classification" | Wording differs: same idea, different phrasing |
+| Age=22, Freq=3, Bronze | "Purchase frequency of 3 sits below the threshold typically associated with high-value buyers" | "Low purchase activity (3) does not meet the bar for high-value classification" | Wording differs: same conclusion, restructured sentence |
+| Age=38, Freq=18, Silver | "Purchase frequency of 18 is well above the dataset average, suggesting strong buying intent" | "The high purchase frequency (18 transactions) is a strong positive signal for value classification" | Wording differs: same meaning, different vocabulary |
+
+**Explanation**: At `temperature=0`, the model is greedy. It always selects the single most probable token at each step, producing identical output every time you run the same prompt. At `temperature=0.7`, the model samples from a broader probability distribution over its vocabulary. Tokens that were close in probability to the top choice now have a real chance of being selected instead, which introduces variation in word choice and sentence structure. The core meaning stays the same because the underlying prediction is unchanged, but the surface-level language shifts noticeably.
+
+## 4. Structured Output Handling
+
+We defined a strict JSON schema with 5 required scalar fields:
+- `prediction_label` (string)
+- `confidence_level` (string, restricted to "low", "medium", or "high")
+- `top_reason` (string)
+- `second_reason` (string)
+- `next_step` (string)
+
+After each LLM call, we:
+1. Strip whitespace from the raw response string.
+2. Parse it with `json.loads()` inside a `try-except json.JSONDecodeError` block.
+3. Validate the parsed dictionary against the schema using `jsonschema.validate()` inside a `try-except jsonschema.ValidationError` block.
+4. If either step fails, we print the error message and return a fallback dictionary with all 5 fields set to `None`.
+
+All 3 inputs produced valid JSON that passed schema validation on the first attempt.
+
+## 5. PII Guardrail
+
+Before every call to `call_llm()`, a regex-based PII scanner checks the user prompt for email addresses and phone numbers:
+
+```python
+def has_pii(text):
+    email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-]+'
+    phone_pattern = r'\b\d{10}\b|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b'
+    return bool(re.search(email_pattern, text) or re.search(phone_pattern, text))
+```
+
+### Guardrail Test Results
+
+| Test Input | Contains PII? | Result |
+| :--- | :--- | :--- |
+| "Customer john.doe@gmail.com bought 15 items last year" | Yes (email) | **Blocked** — LLM call skipped, returned None |
+| "Customer purchased 15 items last year with a satisfaction score of 4" | No | **Passed** — LLM call proceeded normally |
+
+## 6. End-to-End Demonstration Table
+
+| Feature Input | Predicted Class | Probability | Explanation JSON (top_reason) | Valid JSON | Guardrail |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Age=45, Freq=35, Sat=5.0, Platinum | 1 (High-Value) | 0.7028 | "Purchase frequency of 35 is well above the dataset average, suggesting strong buying intent" | PASS | Pass |
+| Age=22, Freq=3, Sat=2.0, Bronze | 0 (Standard) | 0.7951 | "Purchase frequency of 3 sits below the threshold typically associated with high-value buyers" | PASS | Pass |
+| Age=38, Freq=18, Sat=4.0, Silver | 1 (High-Value) | 0.5101 | "Purchase frequency of 18 is well above the dataset average, suggesting strong buying intent" | PASS | Pass |
+
+All three inputs passed the PII guardrail, produced valid JSON from the LLM, and passed `jsonschema.validate()` without triggering any `ValidationError` exceptions.
